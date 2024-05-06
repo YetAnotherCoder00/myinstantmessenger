@@ -1,7 +1,9 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using System.Data;
 using System.Net;
 using System.Text;
+using Microsoft.Data.Sqlite;
 
 namespace Server;
 
@@ -14,6 +16,13 @@ public class Server(string hostLocation)
     {
         Listener.Prefixes.Add(HostLocation);
         Listener.Start();
+    }
+
+    public async Task ConnectDb()
+    {
+        SqliteConnection connection = new("Data Source=database.db");
+        connection.OpenAsync().GetAwaiter().GetResult();
+        DataTable tables = connection.GetSchemaAsync().GetAwaiter().GetResult();
     }
 
     public async Task HandleConnections()
@@ -58,6 +67,7 @@ public class Server(string hostLocation)
     static void Main()
     {
         Server server = new("http://localhost:9090/");
+        server.ConnectDb();
         server.Start();
         server.HandleConnections().GetAwaiter().GetResult();
     }

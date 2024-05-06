@@ -1,3 +1,26 @@
-﻿// See https://aka.ms/new-console-template for more information
+﻿using System.Net;
+using System.Net.Http.Json;
 
-Console.WriteLine("Hello, World!");
+public class ConsoleClient
+{
+    private string Server { get; set; }
+    private readonly HttpClient _client = new();
+
+    public async Task Connect()
+    {
+        _client.BaseAddress = new Uri("http://localhost:9090");
+        HttpResponseMessage response = await _client.GetAsync("headertest");
+        response.EnsureSuccessStatusCode();
+        string jsonResponse = await response.Content.ReadAsStringAsync();
+        Console.WriteLine($"result: {jsonResponse}\n");
+    }
+    
+    static void Main()
+    {
+        ConsoleClient client = new();
+
+        Task connectTask = client.Connect();
+        connectTask.GetAwaiter().GetResult();
+
+    }
+}

@@ -9,6 +9,7 @@ namespace Server;
 
 public class Server(string hostLocation)
 {
+    private SqliteConnection Connection { get; } = new SqliteConnection("Data Source=mim.db");
     private string HostLocation { get; } = hostLocation;
     private HttpListener Listener { get; } = new();
 
@@ -21,26 +22,23 @@ public class Server(string hostLocation)
     public void SetupOnce()
     {
         // ONLY RUN THIS ONCE
-        SqliteConnection connection = new ("Data Source=mim.db");
-        connection.OpenAsync().GetAwaiter().GetResult();
-        connection.CreateCommand();
+        Connection.OpenAsync().GetAwaiter().GetResult();
+        Connection.CreateCommand();
         SqliteCommand command = new("CREATE TABLE accounts (username varchar(100), password varchar(100))");
         command.ExecuteNonQuery();
         command.CommandText = "CREATE TABLE messages (message varchar(1024), sender int, receiver int, " +
                               "FOREIGN KEY(sender) REFERENCES accounts(rowid), " +
                               "FOREIGN KEY(receiver) REFERENCES accounts(rowid))";
-    }
-
-    public SqliteConnection ConnectDb()
-    {
-        SqliteConnection connection = new("Data Source=mim.db");
-        connection.OpenAsync().GetAwaiter().GetResult();
-        return connection;
+        command.ExecuteNonQuery();
+        Connection.CloseAsync().GetAwaiter().GetResult();
     }
 
     public void GetUser()
     {
-        SqliteConnection connection = ConnectDb();
+        Connection.OpenAsync().GetAwaiter();
+        Connection.CreateCommand();
+        SqliteCommand command = new("SELECT * FROM accounts");
+        command.ExecuteNonQuery();
     }
 
     public async Task HandleConnections()
@@ -106,7 +104,6 @@ public class Server(string hostLocation)
                         string username = request.Headers.Get("username") ?? string.Empty;
                         string password = request.Headers.Get("password") ?? string.Empty;
 
-                        
                         break;
                     default:
                         data = Encoding.UTF8.GetBytes(request.Url?.AbsolutePath ?? string.Empty).ToList();
@@ -134,7 +131,6 @@ public class Server(string hostLocation)
         {
             server.SetupOnce();
         }
-        SqliteConnection connection = server.ConnectDb();
         server.Start();
         server.HandleConnections().GetAwaiter().GetResult();
     }

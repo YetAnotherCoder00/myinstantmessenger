@@ -1,6 +1,6 @@
 ﻿public class ConsoleClient
 {
-    private readonly HttpClient _client = new();
+    private HttpClient _client = new();
 
     public async Task Connect()
     {
@@ -29,8 +29,8 @@
         // string message = Console.ReadLine() ?? string.Empty;
         try
         {
-            HttpResponseMessage response = new();
-            response = await _client.PostAsync("sendmessage", new StringContent(message));
+            _client.DefaultRequestHeaders.Date = DateTimeOffset.Now;
+            HttpResponseMessage response = await _client.PostAsync("sendmessage", new StringContent(message));
             response.EnsureSuccessStatusCode();
             string jsonResponse = await response.Content.ReadAsStringAsync();
             Console.WriteLine(jsonResponse);
@@ -43,6 +43,7 @@
 
     public async void RecieveMessage()
     {
+        _client.DefaultRequestHeaders.Date = DateTimeOffset.Now;
         HttpResponseMessage response = await _client.PostAsync("requestmessage", new StringContent("directMessage1"));
         response.EnsureSuccessStatusCode();
         string jsonResponse = await response.Content.ReadAsStringAsync();
@@ -78,7 +79,7 @@
                 Thread.Sleep(1000);
                 try
                 {
-                    client.SendMessage($"Message Nr. 1");
+                    client.SendMessage($"Message Nr. {messageCount}");
                     messageCount += 1;
                 }
                 catch (Exception)

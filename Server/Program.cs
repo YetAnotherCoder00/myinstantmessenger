@@ -3,13 +3,18 @@
 using System.Net;
 using System.Text;
 using Microsoft.Data.Sqlite;
-using System.Security.Cryptography;
 
 namespace Server;
 
+struct Message
+{
+    public string Text { get; set; }
+    public DateTimeOffset Time { get; set; }
+}
+
 public class Server(string hostLocation)
 {
-    private SqliteConnection Connection { get; } = new SqliteConnection("Data Source=mim.db");
+    private SqliteConnection Connection { get; } = new("Data Source=mim.db");
     private string HostLocation { get; } = hostLocation;
     private HttpListener Listener { get; } = new();
 
@@ -23,12 +28,13 @@ public class Server(string hostLocation)
     {
         // ONLY RUN THIS ONCE
         Connection.OpenAsync().GetAwaiter().GetResult();
-        Connection.CreateCommand();
-        SqliteCommand command = new("CREATE TABLE accounts (username varchar(100), password varchar(100))");
+        SqliteCommand command = Connection.CreateCommand();
+        command.CommandText = "CREATE TABLE accounts (username varchar(100), password varchar(100))";
         command.ExecuteNonQuery();
-        command.CommandText = "CREATE TABLE messages (message varchar(1024), sender int, receiver int, " +
-                              "FOREIGN KEY(sender) REFERENCES accounts(rowid), " +
-                              "FOREIGN KEY(receiver) REFERENCES accounts(rowid))";
+        // command.CommandText = "CREATE TABLE messages (message varchar(1024), sender int, receiver int, " +
+        //                       "FOREIGN KEY(sender) REFERENCES accounts(rowid), " +
+        //                       "FOREIGN KEY(receiver) REFERENCES accounts(rowid))";
+        command.CommandText = "CREATE TABLE testMessages (message varchar(1024), unixTime integer)";
         command.ExecuteNonQuery();
         Connection.CloseAsync().GetAwaiter().GetResult();
     }
@@ -36,17 +42,18 @@ public class Server(string hostLocation)
     public void GetUser()
     {
         Connection.OpenAsync().GetAwaiter();
-        Connection.CreateCommand();
-        SqliteCommand command = new("SELECT * FROM accounts");
+        SqliteCommand command = Connection.CreateCommand();
+        command.CommandText = "SELECT * FROM accounts";
         command.ExecuteNonQuery();
     }
 
     public async Task HandleConnections()
     {
         string lastMessage = string.Empty;
-        string lastSentMessage = string.Empty;
         long lastUnixTime = 0;
         long lastSentUnixTime = 0;
+
+        DateTimeOffset lastClientSync = DateTimeOffset.MinValue;
         
         while (true)
         {
@@ -74,31 +81,42 @@ public class Server(string hostLocation)
                         data = "test1"u8.ToArray().ToList();
                         break;
                     case "/sendmessage":
+                        // client sends message to server
                         if (request.HasEntityBody)
                         {
                             requestBody = new StreamReader(request.InputStream).ReadToEnd();
                         }
                         
                         string dataString = string.Empty;
-                        // dataString += request.Headers.Get("cookie") + "\n";
                         dataString += requestBody + "\n";
                         lastMessage = requestBody;
-                        lastUnixTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-                        // request.Headers.AllKeys.ToList().ForEach(elem => dataString += elem + "\n");
                         
-                        data = Encoding.UTF8.GetBytes($"{dataString}\n{lastUnixTime}\n").ToList();
-
+                        data = Encoding.UTF8.GetBytes($"{dataString}\n{request.Headers.Get("Date")}\n").ToList();
+                        
+                        SaveMessage(dataString, request.Headers.Get("Date") ?? string.Empty);
+                        
                         Console.WriteLine(dataString);
                         break;
                     case "/requestmessage":
-                        if (lastSentMessage == lastMessage && lastUnixTime == lastSentUnixTime)
+                        // client requests message from server
+                        
+                        var clientAccess = DateTimeOffset.Parse(request.Headers.Get("Date"));
+
+                        DateTimeOffset latestMessage = GetLatestMessageTime();
+                        
+                        if (latestMessage > lastClientSync)
                         {
-                            continue;
+                            lastClientSync = clientAccess;
+                            List<Message> messages = FetchMessages();
+                            // check database for messages between last client access and current access
+                            data = new List<byte>();
+                            messages.ForEach(elem =>
+                            {
+                                data.AddRange(Encoding.UTF8.GetBytes($"{elem.Text}\\@\\{elem.Time}"));
+                            });
+                            lastClientSync = clientAccess;
                         }
-                        lastSentUnixTime = lastUnixTime;
-                        lastSentMessage = lastMessage;
-                        data = Encoding.UTF8.GetBytes($"{lastMessage}\n{lastUnixTime}").ToList();
-                        Console.WriteLine(lastMessage);
+                        
                         break;
                     case "/createaccount":
                         string username = request.Headers.Get("username") ?? string.Empty;
@@ -119,6 +137,51 @@ public class Server(string hostLocation)
             await response.OutputStream.WriteAsync(data.ToArray(), 0, data.Count);
             response.Close();
         }
+    }
+
+    List<Message> FetchMessages()
+    {
+        List<Message> messages = new();
+        Connection.OpenAsync().GetAwaiter().GetResult();
+        SqliteCommand command = Connection.CreateCommand();
+        command.CommandText = "SELECT * FROM testMessages";
+        SqliteDataReader messageReader = command.ExecuteReaderAsync().GetAwaiter().GetResult();
+        while (messageReader.ReadAsync().GetAwaiter().GetResult())
+        {
+            // create struct or something for message and time stamp
+            Message message = new();
+            message.Text = messageReader.GetString(0);
+            message.Time = DateTimeOffset.FromUnixTimeMilliseconds(messageReader.GetInt64(1));
+            messages.Add(message);
+        }
+
+        return messages;
+    }
+
+    void SaveMessage(string data, string time)
+    {
+        DateTimeOffset timeOffset = DateTimeOffset.Parse(time);
+        long unixTime = timeOffset.ToUnixTimeMilliseconds();
+        Connection.OpenAsync().GetAwaiter().GetResult();
+        SqliteCommand command = Connection.CreateCommand();
+        command.CommandText = $"INSERT INTO testMessages VALUES (\"{data}\", {unixTime})";
+        command.ExecuteNonQuery();
+    }
+
+    DateTimeOffset GetLatestMessageTime()
+    {
+        Connection.OpenAsync().GetAwaiter().GetResult();
+        SqliteCommand command = Connection.CreateCommand();
+        command.CommandText = $"SELECT unixTime FROM testMessages ORDER BY unixTime LIMIT 1";
+        object? result = command.ExecuteScalar();
+        if (result == null || result.ToString() == string.Empty)
+        {
+            return DateTimeOffset.MinValue;
+        }
+
+        long time = long.Parse(result.ToString());
+        DateTimeOffset latestMessageTime = DateTimeOffset.FromUnixTimeMilliseconds(time);
+        return latestMessageTime;
     }
 
     static void Main()

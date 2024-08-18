@@ -1,6 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using Microsoft.Data.Sqlite;
 
@@ -49,12 +47,12 @@ public class Server(string hostLocation)
 
     public async Task HandleConnections()
     {
-        string lastMessage = string.Empty;
-        long lastUnixTime = 0;
-        long lastSentUnixTime = 0;
+        // string lastMessage = string.Empty;
+        // long lastUnixTime = 0;
+        // long lastSentUnixTime = 0;
 
         DateTimeOffset lastClientSync = DateTimeOffset.MinValue;
-        
+
         while (true)
         {
             string requestBody = string.Empty;
@@ -62,7 +60,7 @@ public class Server(string hostLocation)
             HttpListenerContext context = await Listener.GetContextAsync();
             HttpListenerRequest request = context.Request;
             HttpListenerResponse response = context.Response;
-            
+
             if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/shutdown")
             {
                 break;
@@ -86,24 +84,24 @@ public class Server(string hostLocation)
                         {
                             requestBody = new StreamReader(request.InputStream).ReadToEnd();
                         }
-                        
+
                         string dataString = string.Empty;
                         dataString += requestBody + "\n";
-                        lastMessage = requestBody;
-                        
+                        // lastMessage = requestBody;
+
                         data = Encoding.UTF8.GetBytes($"{dataString}\n{request.Headers.Get("Date")}\n").ToList();
-                        
-                        SaveMessage(dataString, request.Headers.Get("Date") ?? string.Empty);
-                        
+
+                        SaveMessage(dataString, request.Headers.Get("Date") ?? DateTimeOffset.Now.ToString());
+
                         Console.WriteLine(dataString);
                         break;
                     case "/requestmessage":
                         // client requests message from server
-                        
-                        var clientAccess = DateTimeOffset.Parse(request.Headers.Get("Date"));
+
+                        var clientAccess = DateTimeOffset.Parse(request.Headers.Get("Date") ?? DateTimeOffset.Now.ToString());
 
                         DateTimeOffset latestMessage = GetLatestMessageTime();
-                        
+
                         if (latestMessage > lastClientSync)
                         {
                             lastClientSync = clientAccess;
@@ -116,7 +114,7 @@ public class Server(string hostLocation)
                             });
                             lastClientSync = clientAccess;
                         }
-                        
+
                         break;
                     case "/createaccount":
                         string username = request.Headers.Get("username") ?? string.Empty;
@@ -129,7 +127,7 @@ public class Server(string hostLocation)
                 }
             }
 
-            
+
             response.ContentType = "text/html";
             response.ContentEncoding = Encoding.UTF8;
             response.ContentLength64 = data.Count;
@@ -165,7 +163,7 @@ public class Server(string hostLocation)
         Connection.OpenAsync().GetAwaiter().GetResult();
         SqliteCommand command = Connection.CreateCommand();
         command.CommandText = $"INSERT INTO testMessages VALUES (\"{data}\", {unixTime})";
-        command.ExecuteNonQuery();
+        Console.WriteLine(command.ExecuteNonQuery());
     }
 
     DateTimeOffset GetLatestMessageTime()
@@ -187,7 +185,7 @@ public class Server(string hostLocation)
     static void Main()
     {
         Server server = new("http://localhost:9090/");
-        List<string> file = Directory.EnumerateFiles(".", "mim.db", 
+        List<string> file = Directory.EnumerateFiles(".", "mim.db",
             SearchOption.TopDirectoryOnly).ToList();
 
         if (!file.Exists(elem => elem.Contains("mim")))
